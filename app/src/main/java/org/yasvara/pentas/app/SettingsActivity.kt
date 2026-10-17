@@ -194,6 +194,8 @@ private fun PentasSettingsScreen(onBack: () -> Unit) {
                     "Show new notifications as a slim banner instead of a heads-up")
                 SegmentRow(obs, "pentas_calls_mode", "0", "Incoming calls",
                     listOf("0" to "Ring", "1" to "Answer", "2" to "Decline"))
+                SwitchRow(obs, "pentas_call_overlay", true, "Call buttons",
+                    "In Ring mode, show answer and decline beside the handle")
                 SegmentRow(obs, "pentas_ringer_mode", "3", "Ringer",
                     listOf("0" to "Silent", "1" to "Vibrate", "2" to "Sound", "3" to "Keep"))
                 SwitchRow(obs, "pentas_lock_bottom_gesture", false, "Lock home swipe",

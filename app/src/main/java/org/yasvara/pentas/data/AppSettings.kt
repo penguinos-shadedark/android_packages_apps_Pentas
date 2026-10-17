@@ -28,6 +28,7 @@ class AppSettings(context: Context) {
     var noThreeScreenshot by observable.boolean(KEY_NO_THREE_SCREENSHOT, false)
     var lockBottomGesture by observable.boolean(KEY_LOCK_BOTTOM_GESTURE, false)
     var callsMode by observable.stringInt(KEY_CALLS_MODE, 0)
+    var callOverlay by observable.boolean(KEY_CALL_OVERLAY, true)
     var memoryManagement by observable.boolean(KEY_MEMORY_MANAGEMENT, false)
     var cacheManagement by observable.boolean(KEY_CACHE_MANAGEMENT, true)
     /** AudioManager ringer mode for the session; 3 keeps the current one. */
@@ -62,6 +63,7 @@ class AppSettings(context: Context) {
         const val KEY_AUTO_DND = "pentas_auto_dnd"
         const val KEY_DANMAKU = "pentas_danmaku"
         const val KEY_NO_THREE_SCREENSHOT = "pentas_no_three_screenshot"
+        const val KEY_CALL_OVERLAY = "pentas_call_overlay"
         const val KEY_MEMORY_MANAGEMENT = "pentas_memory_management"
         const val KEY_CACHE_MANAGEMENT = "pentas_cache_management"
         const val KEY_HANDLE_IDLE_ALPHA = "pentas_handle_idle_alpha"

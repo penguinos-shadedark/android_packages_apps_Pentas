@@ -32,4 +32,6 @@
     <string name="tile_widgets">Widgets</string>
     <string name="tile_dolby">Dolby</string>
     <string name="tile_stats_record">Record stats</string>
+    <string name="call_answered">Answered call from %1$s</string>
+    <string name="call_declined">Declined call from %1$s</string>
 </resources>

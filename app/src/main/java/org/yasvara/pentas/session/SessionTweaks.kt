@@ -42,7 +42,9 @@ class SessionTweaks @Inject constructor(
                 putInt(K_RINGER, audio.ringerModeInternal)
                 audio.ringerModeInternal = settings.ringerMode
             }
-            if (settings.danmaku) {
+            // Without heads-up a ringing call would take the whole screen, so the banner mode only
+            // replaces it when the call overlay or an auto call action covers incoming calls.
+            if (settings.danmaku && (settings.callOverlay || settings.callsMode != CallPolicy.MODE_NONE)) {
                 putBoolean(K_HEADS_UP, system.headsUp)
                 system.headsUp = false
             }

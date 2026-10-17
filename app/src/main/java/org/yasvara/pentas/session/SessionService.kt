@@ -59,6 +59,7 @@ class SessionService : Hilt_SessionService() {
     @Inject lateinit var optimizer: GameOptimizationManager
     @Inject lateinit var danmaku: DanmakuOverlay
     @Inject lateinit var calls: CallPolicy
+    @Inject lateinit var callOverlay: CallOverlay
     @Inject lateinit var perApp: PerAppSettingStore
     @Inject lateinit var perf: PerfTuner
     @Inject lateinit var touch: GameTouchModeManager
@@ -140,6 +141,7 @@ class SessionService : Hilt_SessionService() {
         }
         step("widgets") { widgets.start() }
         step("calls") { calls.start() }
+        step("call overlay") { callOverlay.start() }
         step("danmaku") { danmaku.start() }
         step("dolby") { applyDolby(pkg) }
     }
@@ -147,6 +149,7 @@ class SessionService : Hilt_SessionService() {
     private fun stopGame(pkg: String?) {
         step("stats") { recordStats(false) }
         step("danmaku") { danmaku.stop() }
+        step("call overlay") { callOverlay.stop() }
         step("calls") { calls.stop() }
         step("widgets") { widgets.stop() }
         step("network") { network.stop() }
