@@ -39,7 +39,8 @@ android_app {
 
     required: [
         "privapp_whitelist_org.yasvara.pentas.xml",
-        "permissions_org.yasvara.pentas.xml"
+        "permissions_org.yasvara.pentas.xml",
+        "preinstalled-packages-platform-pentas.xml",
     ],
 }
 
@@ -57,4 +58,12 @@ prebuilt_etc_xml {
     system_ext_specific: true,
     filename_from_src: true,
     sub_dir: "permissions",
+}
+
+prebuilt_etc_xml {
+    name: "preinstalled-packages-platform-pentas.xml",
+    src: "preinstalled-packages-platform-pentas.xml",
+    system_ext_specific: true,
+    filename_from_src: true,
+    sub_dir: "sysconfig",
 }
