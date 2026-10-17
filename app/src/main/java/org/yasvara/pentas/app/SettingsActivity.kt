@@ -190,15 +190,29 @@ private fun PentasSettingsScreen(onBack: () -> Unit) {
             Group {
                 SwitchRow(obs, "pentas_auto_dnd", false, "Do not disturb",
                     "Silence notifications until the game closes", Position.FIRST)
+                SwitchRow(obs, "pentas_danmaku", true, "Banner notifications",
+                    "Show new notifications as a slim banner instead of a heads-up")
                 SegmentRow(obs, "pentas_calls_mode", "0", "Incoming calls",
                     listOf("0" to "Ring", "1" to "Answer", "2" to "Decline"))
                 SegmentRow(obs, "pentas_ringer_mode", "3", "Ringer",
                     listOf("0" to "Silent", "1" to "Vibrate", "2" to "Sound", "3" to "Keep"))
                 SwitchRow(obs, "pentas_lock_bottom_gesture", false, "Lock home swipe",
                     "Swipe up twice within 1.5 s to leave. Side back always works")
+                SwitchRow(obs, "pentas_no_three_screenshot", false, "Block three-finger screenshot",
+                    "Stops the gesture from firing mid-game")
                 SwitchRow(obs, "pentas_stay_awake", false, "Keep screen on", null)
                 SwitchRow(obs, "pentas_auto_brightness_disabled", true, "Lock brightness",
                     "Auto-brightness pauses in game", Position.LAST)
+            }
+        }
+
+        item { SectionLabel("Game launch") }
+        item {
+            Group {
+                SwitchRow(obs, "pentas_memory_management", false, "Free memory",
+                    "Close background apps when a game starts", Position.FIRST)
+                SwitchRow(obs, "pentas_cache_management", true, "Clear large caches",
+                    "Wipe the game's cache once it passes 100 MB", Position.LAST)
             }
         }
 
