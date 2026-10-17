@@ -6,6 +6,7 @@ package org.yasvara.pentas.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.UserHandle
 import android.provider.Settings
@@ -146,6 +147,21 @@ private fun Overview(pkg: String, deps: GameDeps, onOpen: (Part) -> Unit, finish
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(if (info != null && AppClassifier.isGame(info) || added) "Game" else "App",
                         style = label(13.sp, 600), color = cs.primary)
+                }
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(cs.surfaceContainerHigh)
+                        .clickable {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", pkg, null)
+                                    }
+                                )
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Sym.Info, "App info", tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
             }
             Text(
