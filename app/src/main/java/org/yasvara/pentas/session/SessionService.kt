@@ -35,6 +35,7 @@ import org.yasvara.pentas.overlay.OverlayState
 import org.yasvara.pentas.overlay.Sidebar
 import org.yasvara.pentas.overlay.monitor.WidgetOverlay
 import org.yasvara.pentas.overlay.tiles.TileRegistry
+import org.yasvara.pentas.session.danmaku.DanmakuOverlay
 import org.yasvara.pentas.telemetry.FpsInteractor
 import org.yasvara.pentas.telemetry.network.NetworkTelemetry
 import org.yasvara.pentas.telemetry.network.WifiLowLatencyLock
@@ -56,6 +57,7 @@ class SessionService : Hilt_SessionService() {
     @Inject lateinit var widgets: WidgetOverlay
     @Inject lateinit var tweaks: SessionTweaks
     @Inject lateinit var optimizer: GameOptimizationManager
+    @Inject lateinit var danmaku: DanmakuOverlay
     @Inject lateinit var calls: CallPolicy
     @Inject lateinit var perApp: PerAppSettingStore
     @Inject lateinit var perf: PerfTuner
@@ -108,6 +110,7 @@ class SessionService : Hilt_SessionService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         sidebar.onConfigurationChanged()
+        danmaku.onConfigurationChanged()
         touch.onConfigurationChanged(newConfig)
     }
 
@@ -137,11 +140,13 @@ class SessionService : Hilt_SessionService() {
         }
         step("widgets") { widgets.start() }
         step("calls") { calls.start() }
+        step("danmaku") { danmaku.start() }
         step("dolby") { applyDolby(pkg) }
     }
 
     private fun stopGame(pkg: String?) {
         step("stats") { recordStats(false) }
+        step("danmaku") { danmaku.stop() }
         step("calls") { calls.stop() }
         step("widgets") { widgets.stop() }
         step("network") { network.stop() }

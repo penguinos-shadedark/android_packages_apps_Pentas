@@ -31,6 +31,11 @@ class SystemSettings @Inject constructor(@ApplicationContext context: Context) {
             )
         }
 
+    /** Heads-up notifications, the one thing banners replace during a game. */
+    var headsUp: Boolean
+        get() = Settings.Global.getInt(resolver, Settings.Global.HEADS_UP_NOTIFICATIONS_ENABLED, 1) == 1
+        set(on) { Settings.Global.putInt(resolver, Settings.Global.HEADS_UP_NOTIFICATIONS_ENABLED, if (on) 1 else 0) }
+
     /** Three-finger screenshot gesture, 0 when off. */
     var threeScreenshot: Int
         get() = Settings.System.getIntForUser(resolver, KEY_THREE_SCREENSHOT, 0, UserHandle.USER_CURRENT)

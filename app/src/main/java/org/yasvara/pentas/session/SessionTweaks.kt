@@ -15,8 +15,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * System settings a game session borrows (auto brightness, ringer, DND, three-finger
- * screenshot) and gives
+ * System settings a game session borrows (auto brightness, ringer, DND, heads-up,
+ * three-finger screenshot) and gives
  * back. The originals are persisted, so a process death mid-game still restores them on the
  * next session start.
  */
@@ -42,6 +42,10 @@ class SessionTweaks @Inject constructor(
                 putInt(K_RINGER, audio.ringerModeInternal)
                 audio.ringerModeInternal = settings.ringerMode
             }
+            if (settings.danmaku) {
+                putBoolean(K_HEADS_UP, system.headsUp)
+                system.headsUp = false
+            }
             if (settings.noThreeScreenshot) {
                 putInt(K_THREE_SCREENSHOT, system.threeScreenshot)
                 system.threeScreenshot = 0
@@ -57,6 +61,7 @@ class SessionTweaks @Inject constructor(
         if (!saved.getBoolean(K_ACTIVE, false)) return
         if (saved.contains(K_AUTO_BRIGHTNESS)) system.autoBrightness = saved.getBoolean(K_AUTO_BRIGHTNESS, true)
         if (saved.contains(K_RINGER)) audio.ringerModeInternal = saved.getInt(K_RINGER, AudioManager.RINGER_MODE_NORMAL)
+        if (saved.contains(K_HEADS_UP)) system.headsUp = saved.getBoolean(K_HEADS_UP, true)
         if (saved.contains(K_THREE_SCREENSHOT)) system.threeScreenshot = saved.getInt(K_THREE_SCREENSHOT, 0)
         if (saved.contains(K_DND)) notifications.setInterruptionFilter(saved.getInt(K_DND, NotificationManager.INTERRUPTION_FILTER_ALL))
         saved.edit { clear() }
@@ -69,5 +74,6 @@ class SessionTweaks @Inject constructor(
         const val K_RINGER = "ringer"
         const val K_DND = "dnd"
         const val K_THREE_SCREENSHOT = "three_screenshot"
+        const val K_HEADS_UP = "heads_up"
     }
 }

@@ -43,6 +43,7 @@
     <uses-permission android:name="android.permission.CONTROL_DISPLAY_COLOR_TRANSFORMS" />
     <uses-permission android:name="android.permission.SET_ACTIVITY_WATCHER" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
     <uses-permission android:name="android.permission.DELETE_CACHE_FILES" />
 
     <!--
