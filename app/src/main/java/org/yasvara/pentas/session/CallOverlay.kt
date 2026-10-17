@@ -6,6 +6,8 @@ package org.yasvara.pentas.session
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.provider.ContactsContract
 import android.telecom.TelecomManager
@@ -26,6 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,10 +69,15 @@ class CallOverlay @Inject constructor(
 ) {
     private val telephony = context.getSystemService(TelephonyManager::class.java)
     private val telecom = context.getSystemService(TelecomManager::class.java)
+    private val audio = context.getSystemService(AudioManager::class.java)
     private val wm = context.getSystemService(WindowManager::class.java)
     private var scope: CoroutineScope? = null
     private var lookup: Job? = null
     private var view: android.view.View? = null
+    private var inCall by mutableStateOf(false)
+    private var speakerOn by mutableStateOf(false)
+    private var handledInSession = false
+    private var prevSpeakerphone = false
 
     @Suppress("DEPRECATION")
     private val listener = object : PhoneStateListener(context.mainExecutor) {
@@ -75,6 +85,13 @@ class CallOverlay @Inject constructor(
         override fun onCallStateChanged(state: Int, number: String?) {
             when (state) {
                 TelephonyManager.CALL_STATE_RINGING -> ringing(number.orEmpty())
+                TelephonyManager.CALL_STATE_OFFHOOK -> {
+                    if (handledInSession || settings.callsMode == CallPolicy.MODE_ANSWER) {
+                        inCall = true
+                        enableSpeakerIfNoHeadset()
+                        if (view == null && settings.callOverlay) show(null)
+                    }
+                }
                 else -> dismiss()
             }
         }
@@ -98,6 +115,8 @@ class CallOverlay @Inject constructor(
     private fun ringing(number: String) {
         val mode = settings.callsMode
         if (mode == CallPolicy.MODE_NONE && !settings.callOverlay) return
+        handledInSession = true
+        inCall = false
         lookup?.cancel()
         lookup = scope?.launch {
             val name = withContext(Dispatchers.IO) { contactName(number) }.ifEmpty { number }
@@ -106,6 +125,25 @@ class CallOverlay @Inject constructor(
                 CallPolicy.MODE_REJECT -> toast(R.string.call_declined, name)
                 else -> show(withContext(Dispatchers.IO) { contactPhoto(number) })
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableSpeakerIfNoHeadset() {
+        prevSpeakerphone = audio.isSpeakerphoneOn
+        val hasHeadset = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        }
+        if (!hasHeadset) {
+            runCatching { audio.mode = AudioManager.MODE_IN_COMMUNICATION }
+            audio.isSpeakerphoneOn = true
+            speakerOn = true
+        } else {
+            speakerOn = prevSpeakerphone
         }
     }
 
@@ -122,7 +160,18 @@ class CallOverlay @Inject constructor(
         val v = overlayView(context) {
             CallPill(
                 photo = photo,
-                onAccept = { runCatching { telecom.acceptRingingCall() }; dismiss() },
+                inCall = inCall,
+                speakerOn = speakerOn,
+                onAccept = {
+                    handledInSession = true
+                    inCall = true
+                    runCatching { telecom.acceptRingingCall() }
+                    enableSpeakerIfNoHeadset()
+                },
+                onToggleSpeaker = {
+                    speakerOn = !speakerOn
+                    @Suppress("DEPRECATION") { audio.isSpeakerphoneOn = speakerOn }
+                },
                 onDecline = { runCatching { telecom.endCall() }; dismiss() },
                 onHide = ::dismiss,
             )
@@ -131,8 +180,15 @@ class CallOverlay @Inject constructor(
         runCatching { wm.addView(v, params) }.onFailure { view = null }
     }
 
+    @Suppress("DEPRECATION")
     private fun dismiss() {
         lookup?.cancel()
+        if (handledInSession && speakerOn) {
+            runCatching { audio.isSpeakerphoneOn = prevSpeakerphone }
+        }
+        inCall = false
+        speakerOn = false
+        handledInSession = false
         view?.let { runCatching { wm.removeViewImmediate(it) } }
         view = null
     }
@@ -157,7 +213,15 @@ class CallOverlay @Inject constructor(
 }
 
 @Composable
-private fun CallPill(photo: ImageBitmap?, onAccept: () -> Unit, onDecline: () -> Unit, onHide: () -> Unit) {
+private fun CallPill(
+    photo: ImageBitmap?,
+    inCall: Boolean,
+    speakerOn: Boolean,
+    onAccept: () -> Unit,
+    onToggleSpeaker: () -> Unit,
+    onDecline: () -> Unit,
+    onHide: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     Column(
         Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -168,8 +232,17 @@ private fun CallPill(photo: ImageBitmap?, onAccept: () -> Unit, onDecline: () ->
         photo?.let {
             Image(it, null, Modifier.size(52.dp).clip(CircleShape), contentScale = ContentScale.Crop)
         }
-        CallButton(Sym.Close, Color(0xFFEF5350), "Decline", onDecline)
-        CallButton(Sym.Check, Color(0xFF4CAF50), "Answer", onAccept)
+        CallButton(Sym.Close, Color(0xFFEF5350), if (inCall) "End call" else "Decline", onDecline)
+        if (!inCall) {
+            CallButton(Sym.Check, Color(0xFF4CAF50), "Answer", onAccept)
+        } else {
+            CallButton(
+                icon = Sym.GraphicEq,
+                color = if (speakerOn) cs.primary else cs.surfaceContainerHigh,
+                description = "Speaker",
+                onClick = onToggleSpeaker,
+            )
+        }
         Icon(
             ImageVector.vectorResource(R.drawable.sym_expand_more), "Hide",
             tint = cs.onSurfaceVariant,

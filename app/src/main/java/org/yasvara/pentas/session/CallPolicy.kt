@@ -66,7 +66,7 @@ class CallPolicy @Inject constructor(
             it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
     }
 
-    companion object {
+    internal companion object {
         const val MODE_NONE = 0
         const val MODE_ANSWER = 1
         const val MODE_REJECT = 2
