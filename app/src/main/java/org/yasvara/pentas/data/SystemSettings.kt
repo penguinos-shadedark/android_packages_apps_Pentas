@@ -31,6 +31,11 @@ class SystemSettings @Inject constructor(@ApplicationContext context: Context) {
             )
         }
 
+    /** Three-finger screenshot gesture, 0 when off. */
+    var threeScreenshot: Int
+        get() = Settings.System.getIntForUser(resolver, KEY_THREE_SCREENSHOT, 0, UserHandle.USER_CURRENT)
+        set(value) { Settings.System.putIntForUser(resolver, KEY_THREE_SCREENSHOT, value, UserHandle.USER_CURRENT) }
+
     /**
      * Games the sidebar opens for. system_server's GameSpaceService reads the same key and
      * keeps only `package=mode` entries, so every write goes through [write].
@@ -100,6 +105,7 @@ class SystemSettings @Inject constructor(@ApplicationContext context: Context) {
         const val KEY_GAME_LIST = "gamespace_game_list"
         const val KEY_DENIED_LIST = "gamespace_denied_list"
         const val KEY_AUTO_DETECT = "gamespace_auto_game_detect"
+        private const val KEY_THREE_SCREENSHOT = "three_finger_gesture"
 
         /** GameManager game modes, as GameSpaceService stores them. */
         private const val MODE_STANDARD = 1

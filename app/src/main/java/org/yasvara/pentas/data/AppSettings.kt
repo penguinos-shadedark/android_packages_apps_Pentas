@@ -24,6 +24,7 @@ class AppSettings(context: Context) {
     val stayAwakeState get() = observable.booleanState(KEY_STAY_AWAKE, false)
     var noAutoBrightness by observable.boolean(KEY_AUTO_BRIGHTNESS_DISABLE, true)
     var autoDnd by observable.boolean(KEY_AUTO_DND, false)
+    var noThreeScreenshot by observable.boolean(KEY_NO_THREE_SCREENSHOT, false)
     var lockBottomGesture by observable.boolean(KEY_LOCK_BOTTOM_GESTURE, false)
     var callsMode by observable.stringInt(KEY_CALLS_MODE, 0)
     var memoryManagement by observable.boolean(KEY_MEMORY_MANAGEMENT, false)
@@ -54,6 +55,7 @@ class AppSettings(context: Context) {
         const val KEY_RINGER_MODE = "pentas_ringer_mode"
         const val KEY_LOCK_BOTTOM_GESTURE = "pentas_lock_bottom_gesture"
         const val KEY_AUTO_DND = "pentas_auto_dnd"
+        const val KEY_NO_THREE_SCREENSHOT = "pentas_no_three_screenshot"
         const val KEY_MEMORY_MANAGEMENT = "pentas_memory_management"
         const val KEY_CACHE_MANAGEMENT = "pentas_cache_management"
         const val KEY_BANNER_SOURCE = "pentas_banner_source"
