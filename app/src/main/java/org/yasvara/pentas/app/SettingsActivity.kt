@@ -198,9 +198,9 @@ private fun PentasSettingsScreen(onBack: () -> Unit) {
                     "In Ring mode, show answer and decline beside the handle")
                 SegmentRow(obs, "pentas_ringer_mode", "3", "Ringer",
                     listOf("0" to "Silent", "1" to "Vibrate", "2" to "Sound", "3" to "Keep"))
-                SwitchRow(obs, "pentas_lock_bottom_gesture", false, "Lock home swipe",
+                SwitchRow(obs, "pentas_lock_bottom_gesture", true, "Lock home swipe",
                     "Swipe up twice within 1.5 s to leave. Side back always works")
-                SwitchRow(obs, "pentas_no_three_screenshot", false, "Block three-finger screenshot",
+                SwitchRow(obs, "pentas_no_three_screenshot", true, "Block three-finger screenshot",
                     "Stops the gesture from firing mid-game")
                 SwitchRow(obs, "pentas_stay_awake", false, "Keep screen on", null)
                 SwitchRow(obs, "pentas_auto_brightness_disabled", true, "Lock brightness",
