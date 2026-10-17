@@ -36,6 +36,10 @@ class AppSettings(context: Context) {
     var bannerSource by observable.string(KEY_BANNER_SOURCE, org.yasvara.pentas.data.banner.BannerSource.DEFAULT.key)
     var bannerAutoFetch by observable.boolean(KEY_BANNER_AUTO_FETCH, true)
 
+    /** How faint the edge handle gets when idle, in percent. */
+    var handleIdleAlpha by observable.intClamped(KEY_HANDLE_IDLE_ALPHA, 35, 5..100)
+    val handleIdleAlphaState get() = observable.intClampedState(KEY_HANDLE_IDLE_ALPHA, 35, 5..100)
+
     var tileOrder: List<String>
         get() = list(KEY_TILE_ORDER)
         set(v) = db.edit { putString(KEY_TILE_ORDER, v.joinToString(",")) }
@@ -60,6 +64,7 @@ class AppSettings(context: Context) {
         const val KEY_NO_THREE_SCREENSHOT = "pentas_no_three_screenshot"
         const val KEY_MEMORY_MANAGEMENT = "pentas_memory_management"
         const val KEY_CACHE_MANAGEMENT = "pentas_cache_management"
+        const val KEY_HANDLE_IDLE_ALPHA = "pentas_handle_idle_alpha"
         const val KEY_BANNER_SOURCE = "pentas_banner_source"
         const val KEY_BANNER_AUTO_FETCH = "pentas_banner_auto_fetch"
         private const val KEY_TILE_ORDER = "tile_order"

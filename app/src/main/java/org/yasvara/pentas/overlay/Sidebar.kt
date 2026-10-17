@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -176,7 +177,8 @@ class Sidebar @Inject constructor(
     private fun Handle() {
         val cs = MaterialTheme.colorScheme
         val left by onLeft
-        val dim by animateFloatAsState(if (idle.value) 0.35f else 1f, label = "idle")
+        val idleAlpha = remember { settings.handleIdleAlphaState }
+        val dim by animateFloatAsState(if (idle.value) idleAlpha.intValue / 100f else 1f, label = "idle")
         Box(
             Modifier.size(20.dp, 72.dp)
                 .pointerInput(Unit) { detectTapGestures { showPanel() } }

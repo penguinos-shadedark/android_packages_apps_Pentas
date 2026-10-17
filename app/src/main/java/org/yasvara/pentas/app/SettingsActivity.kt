@@ -206,6 +206,13 @@ private fun PentasSettingsScreen(onBack: () -> Unit) {
             }
         }
 
+        item { SectionLabel("Sidebar") }
+        item {
+            Group {
+                IdleAlphaRow(appSettings)
+            }
+        }
+
         item { SectionLabel("Game launch") }
         item {
             Group {
@@ -552,6 +559,26 @@ private fun SwitchRow(
             Titles(title, subtitle, Modifier.weight(1f))
             Spacer(Modifier.width(16.dp))
             Switch(checked = checked, onCheckedChange = { obs.setBoolean(key, default, it) })
+        }
+    }
+}
+
+@Composable
+private fun IdleAlphaRow(appSettings: AppSettings) {
+    val alpha = remember { appSettings.handleIdleAlphaState }
+    RowShell(Position.SINGLE) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Titles("Idle handle opacity", "How visible the edge handle stays when untouched", Modifier.weight(1f))
+                Spacer(Modifier.width(16.dp))
+                Text("${alpha.intValue}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            Slider(
+                value = alpha.intValue.toFloat(),
+                onValueChange = { appSettings.handleIdleAlpha = it.roundToInt() },
+                valueRange = 5f..100f,
+            )
         }
     }
 }
