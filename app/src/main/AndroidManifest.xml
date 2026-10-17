@@ -42,6 +42,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_ROUTING" />
     <uses-permission android:name="android.permission.CONTROL_DISPLAY_COLOR_TRANSFORMS" />
     <uses-permission android:name="android.permission.SET_ACTIVITY_WATCHER" />
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.DELETE_CACHE_FILES" />
 
     <!--
         The persistent main process runs only the thermal and clock control plane. Activities

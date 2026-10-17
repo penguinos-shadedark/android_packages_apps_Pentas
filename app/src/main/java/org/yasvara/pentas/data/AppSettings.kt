@@ -26,6 +26,8 @@ class AppSettings(context: Context) {
     var autoDnd by observable.boolean(KEY_AUTO_DND, false)
     var lockBottomGesture by observable.boolean(KEY_LOCK_BOTTOM_GESTURE, false)
     var callsMode by observable.stringInt(KEY_CALLS_MODE, 0)
+    var memoryManagement by observable.boolean(KEY_MEMORY_MANAGEMENT, false)
+    var cacheManagement by observable.boolean(KEY_CACHE_MANAGEMENT, true)
     /** AudioManager ringer mode for the session; 3 keeps the current one. */
     var ringerMode by observable.stringInt(KEY_RINGER_MODE, 3)
 
@@ -52,6 +54,8 @@ class AppSettings(context: Context) {
         const val KEY_RINGER_MODE = "pentas_ringer_mode"
         const val KEY_LOCK_BOTTOM_GESTURE = "pentas_lock_bottom_gesture"
         const val KEY_AUTO_DND = "pentas_auto_dnd"
+        const val KEY_MEMORY_MANAGEMENT = "pentas_memory_management"
+        const val KEY_CACHE_MANAGEMENT = "pentas_cache_management"
         const val KEY_BANNER_SOURCE = "pentas_banner_source"
         const val KEY_BANNER_AUTO_FETCH = "pentas_banner_auto_fetch"
         private const val KEY_TILE_ORDER = "tile_order"

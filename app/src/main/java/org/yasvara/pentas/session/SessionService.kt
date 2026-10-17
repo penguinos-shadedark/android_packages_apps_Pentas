@@ -55,6 +55,7 @@ class SessionService : Hilt_SessionService() {
     @Inject lateinit var tiles: TileRegistry
     @Inject lateinit var widgets: WidgetOverlay
     @Inject lateinit var tweaks: SessionTweaks
+    @Inject lateinit var optimizer: GameOptimizationManager
     @Inject lateinit var calls: CallPolicy
     @Inject lateinit var perApp: PerAppSettingStore
     @Inject lateinit var perf: PerfTuner
@@ -123,6 +124,7 @@ class SessionService : Hilt_SessionService() {
     /** Video and game sessions only touch the hardware for games. */
     private fun startGame(pkg: String) {
         step("boost") { setBoost(true) }
+        step("optimize") { optimizer.optimizeGameLaunch(pkg) }
         io.setProp(PROP_SCHED_LIB, pkg)
         step("tweaks") { tweaks.apply() }
         step("per-app settings") { perApp.applySession(pkg) }
