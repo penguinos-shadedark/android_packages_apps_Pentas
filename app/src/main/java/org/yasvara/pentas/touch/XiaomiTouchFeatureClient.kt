@@ -8,9 +8,11 @@ import android.os.IBinder
 import android.os.Parcel
 import android.os.RemoteException
 import android.os.ServiceManager
+import android.os.SystemClock
 import android.util.Log
+import java.lang.reflect.InvocationTargetException
 
-/** Client for the vendor `ITouchFeature` AIDL HAL on the primary display. */
+/** Client for the vendor TouchFeature HAL, preferring the device HIDL 1.0 service. */
 object XiaomiTouchFeatureClient {
 
     private const val TAG = "XiaomiTouchFeature"
@@ -21,6 +23,9 @@ object XiaomiTouchFeatureClient {
 
     private const val SERVICE_NAME = "vendor.xiaomi.hw.touchfeature.ITouchFeature/default"
     private const val INTERFACE_TOKEN = "vendor.xiaomi.hw.touchfeature.ITouchFeature"
+    private const val HIDL_DESCRIPTOR = "vendor.xiaomi.hw.touchfeature@1.0::ITouchFeature"
+    private const val HIDL_INSTANCE = "default"
+    private const val LOOKUP_BACKOFF_MS = 30_000L
 
     /** AIDL transact codes (V3) */
     private const val TRANSACT_GET_MODE_CUR_VALUE = 1
@@ -163,48 +168,136 @@ object XiaomiTouchFeatureClient {
 
     /** Whether [modeId] has any effect on this device; the HAL reports success either way. */
     fun isModeSupported(modeId: Int): Boolean =
-        modeId < KERNEL_MODE_NUM || modeId in HAL_CONSUMED_MODES
+        (modeId < KERNEL_MODE_NUM || modeId in HAL_CONSUMED_MODES) &&
+            (modeId != MODE_GAME_PACKAGE_NAME || getHidlService() == null || getAidlService() != null)
 
     // ──────────────────────────────────────────────────────────────────
-    // Cached service binder
+    // Cached service handles
     // ──────────────────────────────────────────────────────────────────
 
-    @Volatile
-    private var cachedBinder: IBinder? = null
+    @Volatile private var cachedBinder: IBinder? = null
+    @Volatile private var nextAidlLookupMs = 0L
+    @Volatile private var cachedHidlBinder: Any? = null
+    @Volatile private var nextHidlLookupMs = 0L
+    @Volatile private var packageApiWarningLogged = false
 
-    private fun getService(): IBinder? {
+    /** The AIDL V3 service exists on newer vendor stacks; this Marble build exposes HIDL 1.0. */
+    private fun getAidlService(): IBinder? {
         cachedBinder?.let {
             if (it.isBinderAlive) return it
             cachedBinder = null
         }
-        return ServiceManager.getService(SERVICE_NAME)?.also {
-            cachedBinder = it
-            try {
-                it.linkToDeath({ cachedBinder = null }, 0)
-            } catch (_: RemoteException) {}
+        val now = SystemClock.elapsedRealtime()
+        if (now < nextAidlLookupMs) return null
+        val service = try {
+            ServiceManager.getService(SERVICE_NAME)
+        } catch (_: SecurityException) {
+            null
+        }
+        if (service == null) {
+            nextAidlLookupMs = now + LOOKUP_BACKOFF_MS
+            return null
+        }
+        cachedBinder = service
+        nextAidlLookupMs = 0L
+        try {
+            service.linkToDeath({ cachedBinder = null }, 0)
+        } catch (_: RemoteException) {
+            cachedBinder = null
+        }
+        return cachedBinder
+    }
+
+    /** Resolve HIDL without waiting indefinitely on devices that only ship the AIDL service. */
+    private fun getHidlService(): Any? {
+        cachedHidlBinder?.let { return it }
+        val now = SystemClock.elapsedRealtime()
+        if (now < nextHidlLookupMs) return null
+        return try {
+            val hwBinder = Class.forName("android.os.HwBinder")
+            val service = hwBinder.getMethod(
+                "getService", String::class.java, String::class.java, Boolean::class.javaPrimitiveType
+            ).invoke(null, HIDL_DESCRIPTOR, HIDL_INSTANCE, false)
+            if (service == null) {
+                nextHidlLookupMs = now + LOOKUP_BACKOFF_MS
+                null
+            } else {
+                cachedHidlBinder = service
+                nextHidlLookupMs = 0L
+                service
+            }
+        } catch (_: Exception) {
+            nextHidlLookupMs = now + LOOKUP_BACKOFF_MS
+            null
         }
     }
 
     /**
-     * Whether the Xiaomi touch feature HAL is available on this device.
+     * Invoke one HIDL 1.0 transaction using the platform HwParcel classes reflectively.
+     * Reflection keeps the app build independent of a generated vendor Java stub.
      */
+    private fun <T> transactHidl(
+        code: Int,
+        writeArgs: (Class<*>, Any) -> Unit,
+        readReply: (Class<*>, Any) -> T,
+    ): T? {
+        val binder = getHidlService() ?: return null
+        var request: Any? = null
+        var reply: Any? = null
+        var parcelClass: Class<*>? = null
+        return try {
+            parcelClass = Class.forName("android.os.HwParcel")
+            request = parcelClass.getConstructor().newInstance()
+            reply = parcelClass.getConstructor().newInstance()
+            parcelClass.getMethod("writeInterfaceToken", String::class.java)
+                .invoke(request, HIDL_DESCRIPTOR)
+            writeArgs(parcelClass, request)
+            Class.forName("android.os.IHwBinder").getMethod(
+                "transact", Int::class.javaPrimitiveType, parcelClass, parcelClass,
+                Int::class.javaPrimitiveType
+            ).invoke(binder, code, request, reply, 0)
+            parcelClass.getMethod("verifySuccess").invoke(reply)
+            parcelClass.getMethod("releaseTemporaryStorage").invoke(request)
+            readReply(parcelClass, reply)
+        } catch (e: Exception) {
+            val cause = (e as? InvocationTargetException)?.targetException ?: e
+            Log.w(TAG, "HIDL transaction $code failed", cause)
+            cachedHidlBinder = null
+            nextHidlLookupMs = SystemClock.elapsedRealtime() + LOOKUP_BACKOFF_MS
+            null
+        } finally {
+            parcelClass?.let { clazz ->
+                request?.let { runCatching { clazz.getMethod("release").invoke(it) } }
+                reply?.let { runCatching { clazz.getMethod("release").invoke(it) } }
+            }
+        }
+    }
+
+    private fun hidlInt(code: Int, vararg args: Int): Int? = transactHidl(
+        code,
+        writeArgs = { parcel, request ->
+            val writeInt = parcel.getMethod("writeInt32", Int::class.javaPrimitiveType)
+            args.forEach { writeInt.invoke(request, it) }
+        },
+        readReply = { parcel, reply -> parcel.getMethod("readInt32").invoke(reply) as Int },
+    )
+
+    /** Whether either supported transport is available. */
     val isAvailable: Boolean
-        get() = getService() != null
+        get() = getHidlService() != null || getAidlService() != null
 
     // ──────────────────────────────────────────────────────────────────
     // Core API
     // ──────────────────────────────────────────────────────────────────
 
-    fun setTouchMode(modeId: Int, value: Int): Boolean {
-        return setTouchMode(DISPLAY_PRIMARY, modeId, value)
-    }
+    fun setTouchMode(modeId: Int, value: Int): Boolean =
+        setTouchMode(DISPLAY_PRIMARY, modeId, value)
 
     /** Sets [modeId] on [displayId]; true when the HAL call succeeded. */
     fun setTouchMode(displayId: Int, modeId: Int, value: Int): Boolean {
-        val binder = getService() ?: run {
-            Log.w(TAG, "setTouchMode($modeId, $value) — service unavailable")
-            return false
-        }
+        // Prefer HIDL on this device; HIDL 1.0 setModeValue is transaction 8.
+        if (getHidlService() != null) return hidlInt(8, displayId, modeId, value) == 0
+        val binder = getAidlService() ?: return false
 
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
@@ -219,9 +312,7 @@ object XiaomiTouchFeatureClient {
             if (result != 0) {
                 Log.w(TAG, "setTouchMode($modeId, $value) failed: ret=$result")
                 false
-            } else {
-                true
-            }
+            } else true
         } catch (e: RemoteException) {
             Log.e(TAG, "setTouchMode($modeId, $value) transact failed", e)
             false
@@ -231,11 +322,10 @@ object XiaomiTouchFeatureClient {
         }
     }
 
-    /**
-     * Helper to read an integer from a mode getter transact.
-     */
+    /** Getter transaction IDs 1–4 are shared by AIDL V3 and HIDL 1.0. */
     private fun getModeInt(transactCode: Int, displayId: Int, modeId: Int): Int {
-        val binder = getService() ?: return -1
+        if (getHidlService() != null) return hidlInt(transactCode, displayId, modeId) ?: -1
+        val binder = getAidlService() ?: return -1
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
@@ -245,9 +335,7 @@ object XiaomiTouchFeatureClient {
             if (binder.transact(transactCode, data, reply, 0)) {
                 reply.readException()
                 reply.readInt()
-            } else {
-                -1
-            }
+            } else -1
         } catch (e: RemoteException) {
             Log.e(TAG, "Transact $transactCode failed for mode $modeId", e)
             -1
@@ -257,13 +345,27 @@ object XiaomiTouchFeatureClient {
         }
     }
 
-    fun getModeCurValue(modeId: Int): Int = getModeInt(TRANSACT_GET_MODE_CUR_VALUE, DISPLAY_PRIMARY, modeId)
+    fun getModeCurValue(modeId: Int): Int =
+        getModeInt(TRANSACT_GET_MODE_CUR_VALUE, DISPLAY_PRIMARY, modeId)
 
-    /**
-     * Get an integer array for a specific mode value query.
-     */
+    /** Get an integer array for a specific mode value query. */
     fun getModeValue(modeId: Int): IntArray? {
-        val binder = getService() ?: return null
+        if (getHidlService() != null) {
+            val values = transactHidl(
+                5,
+                writeArgs = { parcel, request ->
+                    val writeInt = parcel.getMethod("writeInt32", Int::class.javaPrimitiveType)
+                    writeInt.invoke(request, DISPLAY_PRIMARY)
+                    writeInt.invoke(request, modeId)
+                },
+                readReply = { parcel, reply ->
+                    @Suppress("UNCHECKED_CAST")
+                    (parcel.getMethod("readInt32Vector").invoke(reply) as? List<Int>)?.toIntArray()
+                },
+            )
+            return values
+        }
+        val binder = getAidlService() ?: return null
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
@@ -273,9 +375,7 @@ object XiaomiTouchFeatureClient {
             if (binder.transact(TRANSACT_GET_MODE_VALUE, data, reply, 0)) {
                 reply.readException()
                 reply.createIntArray()
-            } else {
-                null
-            }
+            } else null
         } catch (e: RemoteException) {
             Log.e(TAG, "getModeValue failed for mode $modeId", e)
             null
@@ -285,13 +385,16 @@ object XiaomiTouchFeatureClient {
         }
     }
 
-    /** Associates a package (or comma-separated list) with [modeId]. */
+    /** Package-name APIs are available only on the newer AIDL V3 interface. */
     fun setModePackageName(modeId: Int, packageName: String): Boolean {
-        val binder = getService() ?: run {
-            Log.w(TAG, "setModePackageName($modeId) — service unavailable")
+        if (getHidlService() != null) {
+            if (!packageApiWarningLogged) {
+                packageApiWarningLogged = true
+                Log.w(TAG, "HIDL 1.0 does not expose setModePackageName; package lists are unavailable")
+            }
             return false
         }
-
+        val binder = getAidlService() ?: return false
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
@@ -301,7 +404,6 @@ object XiaomiTouchFeatureClient {
             data.writeString(packageName)
             binder.transact(TRANSACT_SET_MODE_PACKAGE_NAME, data, reply, 0)
             reply.readException()
-            Log.d(TAG, "setModePackageName($modeId, $packageName) — success")
             true
         } catch (e: RemoteException) {
             Log.e(TAG, "setModePackageName($modeId) transact failed", e)
@@ -312,14 +414,9 @@ object XiaomiTouchFeatureClient {
         }
     }
 
-    /**
-     * Get touch event data from the HAL.
-     *
-     * @return JSON string with touch event info, or null on failure
-     */
+    /** HIDL 1.0 has no touch-event query; keep this AIDL-only. */
     fun getTouchEvent(): String? {
-        val binder = getService() ?: return null
-
+        val binder = getAidlService() ?: return null
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
@@ -336,10 +433,9 @@ object XiaomiTouchFeatureClient {
         }
     }
 
-    /** Whitelist JSON for [modeIds], or null. */
+    /** HIDL 1.0 has no whitelist query; keep this AIDL-only. */
     fun getModeWhitelist(vararg modeIds: Int): String? {
-        val binder = getService() ?: return null
-
+        val binder = getAidlService() ?: return null
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
