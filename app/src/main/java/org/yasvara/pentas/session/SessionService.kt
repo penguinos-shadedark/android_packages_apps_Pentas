@@ -110,9 +110,9 @@ class SessionService : Hilt_SessionService() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        sidebar.onConfigurationChanged()
-        danmaku.onConfigurationChanged()
-        touch.onConfigurationChanged(newConfig)
+        step("sidebar configuration") { sidebar.onConfigurationChanged() }
+        step("danmaku configuration") { danmaku.onConfigurationChanged() }
+        step("touch configuration") { touch.onConfigurationChanged(newConfig) }
     }
 
     private fun start(pkg: String, mode: Int) {
@@ -121,7 +121,7 @@ class SessionService : Hilt_SessionService() {
         session.start(pkg, mode)
         step("tweak restore") { tweaks.restore() }
         if (mode == SidebarMode.MODE_GAME) startGame(pkg)
-        sidebar.start(pkg, mode)
+        step("sidebar start") { sidebar.start(pkg, mode) }
         publish(pkg, mode)
     }
 
@@ -173,13 +173,14 @@ class SessionService : Hilt_SessionService() {
         if (session.mode == mode) return
         val pkg = session.currentPackage ?: return
         session.start(pkg, mode)
-        sidebar.modeChanged(mode)
+        step("sidebar mode change") { sidebar.modeChanged(mode) }
     }
 
     private fun stop() {
         val pkg = session.currentPackage ?: return
         Log.i(TAG, "Stop $pkg")
-        sidebar.end()
+        // Sidebar/window teardown must not prevent hardware/session restoration.
+        step("sidebar end") { sidebar.end() }
         if (session.isGame) stopGame(pkg)
         fps.reset()
         session.stop()

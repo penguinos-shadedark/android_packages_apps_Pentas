@@ -4,6 +4,7 @@
  */
 package org.yasvara.pentas.thermal
 
+import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
@@ -19,19 +20,28 @@ object KernelNodeIO {
 
     private const val TAG = "KernelNodeIO"
     private const val READ_BUF_SIZE = 4096
+    private const val OPEN_BACKOFF_MS = 15_000L
 
     /** A cached, pre-opened node handle. */
     private class NodeHandle(val path: String, val writable: Boolean) {
         var fd: FileDescriptor? = null
+        var nextOpenAttemptMs = 0L
         val buf = ByteArray(READ_BUF_SIZE)
 
         fun ensureOpen(): FileDescriptor? {
             fd?.let { return it }
+            val now = SystemClock.elapsedRealtime()
+            if (now < nextOpenAttemptMs) return null
             return try {
                 val flags = if (writable) OsConstants.O_RDWR else OsConstants.O_RDONLY
-                Os.open(path, flags, 0).also { fd = it }
-            } catch (e: Exception) {
-                null // Missing node or EACCES — caller logs once via exists()
+                Os.open(path, flags, 0).also {
+                    fd = it
+                    nextOpenAttemptMs = 0L
+                }
+            } catch (_: Exception) {
+                // Missing/denied sysfs nodes must not be reopened on every telemetry tick.
+                nextOpenAttemptMs = now + OPEN_BACKOFF_MS
+                null
             }
         }
 

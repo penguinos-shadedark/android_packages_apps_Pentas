@@ -4,7 +4,7 @@
  */
 package org.yasvara.pentas.telemetry.network
 
-import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
@@ -28,11 +28,8 @@ class NetworkPingMonitor {
 
         /** Pre-compiled — zero allocation per parsed line. */
         private val WHITESPACE = Regex("\\s+")
+        private val UID_FIELD = Regex("(?:^|\\s)uid[:=]\\s*(\\d+)(?:\\s|$)")
 
-        /** TCP states with a remote peer (LISTEN and TIME_WAIT excluded). */
-        private val USEFUL_TCP_STATES = setOf(
-            "01", "02", "03", "04", "05", "07", "08", "09", "0B"
-        )
     }
 
     // ── Public state (consumed by Compose UI) ─────────────────────────
@@ -47,36 +44,37 @@ class NetworkPingMonitor {
 
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var appContext: Context? = null
-
-    private var gameUid = -1
-    private var cachedServerIps = emptyList<String>()
+    @Volatile private var generation = 0L
+    private var cachedServerEndpoints = emptyList<Pair<String, Int>>()
     private var consecutiveFails = 0
     private var consecutiveGood = 0
 
     // ── Lifecycle ─────────────────────────────────────────────────────
 
-    fun start(context: Context? = null, uid: Int) {
+    fun start(uid: Int) {
         stop()
-        appContext = context?.applicationContext
-        gameUid = uid
-        cachedServerIps = emptyList()
+        val runGeneration = generation
+        cachedServerEndpoints = emptyList()
         consecutiveFails = 0
         consecutiveGood = 0
         Log.i(TAG, "Starting ping monitor for UID=$uid")
 
         monitorJob = scope.launch {
             // Resolve ONCE at session start
-            cachedServerIps = resolveServerIps(uid)
-            Log.d(TAG, "Initial server IPs for UID=$uid: $cachedServerIps")
+            val initialEndpoints = resolveServerEndpoints(uid)
+            if (runGeneration != generation) return@launch
+            cachedServerEndpoints = initialEndpoints
+            Log.d(TAG, "Initial server endpoints for UID=$uid: $cachedServerEndpoints")
 
-            while (isActive) {
+            while (isActive && runGeneration == generation) {
                 try {
-                    pollOnce()
+                    pollOnce(runGeneration, uid)
                 } catch (e: Exception) {
                     Log.w(TAG, "Ping cycle error", e)
-                    latencyMs.value = -1
-                    allServerPings.value = emptyList()
+                    if (runGeneration == generation) {
+                        latencyMs.value = -1
+                        allServerPings.value = emptyList()
+                    }
                 }
 
                 // Adaptive: fast when unstable, slow when stable
@@ -89,13 +87,12 @@ class NetworkPingMonitor {
     }
 
     fun stop() {
+        generation++
         monitorJob?.cancel()
         monitorJob = null
-        appContext = null
         latencyMs.value = -1
         allServerPings.value = emptyList()
-        cachedServerIps = emptyList()
-        gameUid = -1
+        cachedServerEndpoints = emptyList()
         consecutiveFails = 0
         consecutiveGood = 0
         Log.i(TAG, "Ping monitor stopped")
@@ -103,27 +100,30 @@ class NetworkPingMonitor {
 
     // ── Poll cycle ────────────────────────────────────────────────────
 
-    private fun pollOnce() {
-        // Re-resolve if we lost all known servers
-        if (cachedServerIps.isEmpty()) {
-            cachedServerIps = resolveServerIps(gameUid)
+    private fun pollOnce(runGeneration: Long, uid: Int) {
+        if (runGeneration != generation) return
+        // If no game sockets were found, retry discovery only after several polling
+        // intervals instead of launching `ss` on every tick.
+        if (cachedServerEndpoints.isEmpty() && consecutiveFails >= RE_RESOLVE_AFTER_FAILS) {
+            val resolved = resolveServerEndpoints(uid)
+            if (runGeneration != generation) return
+            cachedServerEndpoints = resolved
+            consecutiveFails = 0
         }
 
-        if (cachedServerIps.isEmpty()) {
+        if (cachedServerEndpoints.isEmpty()) {
             latencyMs.value = -1
             allServerPings.value = emptyList()
-            if (++consecutiveFails >= RE_RESOLVE_AFTER_FAILS) {
-                cachedServerIps = resolveServerIps(gameUid)
-                consecutiveFails = 0
-            }
+            consecutiveFails++
             return
         }
 
-        val pings = cachedServerIps
+        val pings = cachedServerEndpoints
             .take(MAX_SERVERS_TO_PING)
-            .map { ip -> ip to measurePing(ip) }
+            .map { (ip, port) -> ip to measurePing(ip, port) }
             .sortedBy { it.second.takeIf { p -> p > 0 } ?: Int.MAX_VALUE }
 
+        if (runGeneration != generation) return
         allServerPings.value = pings
         val best = pings.firstOrNull { it.second > 0 }?.second ?: -1
         latencyMs.value = best
@@ -135,7 +135,9 @@ class NetworkPingMonitor {
             consecutiveGood = 0
             // Server IP may have rotated (load balancer) — re-resolve
             if (++consecutiveFails >= RE_RESOLVE_AFTER_FAILS) {
-                cachedServerIps = resolveServerIps(gameUid)
+                val resolved = resolveServerEndpoints(uid)
+                if (runGeneration != generation) return
+                cachedServerEndpoints = resolved
                 consecutiveFails = 0
             }
         }
@@ -143,134 +145,69 @@ class NetworkPingMonitor {
 
     // ── Server IP resolution ──────────────────────────────────────────
 
-    /** Remote addresses of the game's sockets, read with `ss`. */
-    private fun resolveServerIps(uid: Int): List<String> {
-        val ips = LinkedHashSet<String>(8)
-
-        // 1. Try ss -tnu (TCP + UDP numeric)
+    /** Remote endpoints belonging to this game UID. Never fall back to global sockets, DNS, or gateway IPs. */
+    private fun resolveServerEndpoints(uid: Int): List<Pair<String, Int>> {
+        if (uid <= 0) return emptyList()
+        val endpoints = LinkedHashSet<Pair<String, Int>>(8)
+        var proc: Process? = null
         try {
-            val proc = Runtime.getRuntime().exec(
-                arrayOf("ss", "-tnu")
+            // Android's ss does not consistently support a UID filter; -e exposes UID
+            // metadata, which parseSsLine checks before accepting any endpoint.
+            proc = Runtime.getRuntime().exec(
+                arrayOf("ss", "-e", "-t", "-n", "state", "established")
             )
-            BufferedReader(InputStreamReader(proc.inputStream), 4096).use { r ->
-                r.forEachLine { line ->
-                    parseSsLine(line, uid, ips)
-                }
+            BufferedReader(InputStreamReader(proc.inputStream), 4096).use { reader ->
+                reader.forEachLine { line -> parseSsLine(line, uid, endpoints) }
             }
             proc.waitFor()
         } catch (e: Exception) {
-            Log.w(TAG, "ss command failed, trying netstat", e)
+            Log.w(TAG, "UID-filtered ss scan failed for UID=$uid", e)
+        } finally {
+            proc?.let { runCatching { it.destroyForcibly() } }
         }
-
-        // 2. Fallback to netstat -tunW if ss yielded nothing
-        if (ips.isEmpty()) {
-            try {
-                val proc = Runtime.getRuntime().exec(
-                    arrayOf("netstat", "-tunW")
-                )
-                BufferedReader(InputStreamReader(proc.inputStream), 4096).use { r ->
-                    r.forEachLine { line ->
-                        parseNetstatLine(line, uid, ips)
-                    }
-                }
-                proc.waitFor()
-            } catch (e2: Exception) {
-                Log.w(TAG, "netstat command failed", e2)
-            }
-        }
-
-        // 3. ConnectivityManager System API resolution (100% REAL active network DNS/gateway routes)
-        if (ips.isEmpty() && appContext != null) {
-            try {
-                val cm = appContext?.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                val activeNetwork = cm?.activeNetwork
-                if (activeNetwork != null) {
-                    val linkProps = cm.getLinkProperties(activeNetwork)
-                    linkProps?.dnsServers?.forEach { dns ->
-                        dns.hostAddress?.takeIf { !isLocalIp(it) }?.let { ips.add(it) }
-                    }
-                    linkProps?.routes?.firstOrNull { it.isDefaultRoute }?.gateway?.hostAddress?.let { gw ->
-                        if (!isLocalIp(gw)) ips.add(gw)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "ConnectivityManager resolution failed", e)
-            }
-        }
-
-        Log.d(TAG, "Resolved ${ips.size} real game server IPs for ping: $ips")
-        return ips.toList()
+        return endpoints.toList()
     }
 
     /**
-     * Parse a line from `ss -tnuH state established`.
-     * Format: Netid  State  Recv-Q  Send-Q   Local Address:Port  Peer Address:Port
-     * Example: tcp    ESTAB  0       0        10.0.0.5:43210      142.250.1.100:443
+     * `ss -e -t -n state established` output differs by iproute2 version: some versions
+     * include the state column, others omit it when a state filter is supplied. Locate the
+     * peer accordingly, and require the explicit `uid:UID` metadata before accepting it.
      */
-    private fun parseSsLine(line: String, uid: Int, out: MutableSet<String>) {
+    private fun parseSsLine(line: String, uid: Int, out: MutableSet<Pair<String, Int>>) {
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("Netid") || trimmed.startsWith("State")) return
-
+        if (UID_FIELD.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull() != uid) return
         val parts = trimmed.split(WHITESPACE)
-        if (parts.size < 5) return
-
-        // Remote peer address is ALWAYS the last token in `ss -tnu`
-        val peer = parts.last()
-
-        val ip = extractIpFromSocketAddr(peer) ?: return
-        if (ip.isNotEmpty() && !isLocalIp(ip)) {
-            out.add(ip)
+        if (parts.size < 4) return
+        val peerIndex = when {
+            parts[0].toIntOrNull() != null -> 3 // state column omitted
+            parts[0] in setOf("ESTAB", "ESTABLISHED") -> 4 // state column present
+            parts[0] in setOf("tcp", "tcp4", "tcp6") -> 5 // netid and state present
+            else -> return
         }
+        val endpoint = extractEndpoint(parts.getOrNull(peerIndex) ?: return) ?: return
+        if (!isLocalIp(endpoint.first)) out.add(endpoint)
     }
 
-    /**
-     * Parse a line from `netstat -tunW`.
-     * Format: Proto Recv-Q Send-Q Local Address    Foreign Address  State
-     * Example: tcp   0      0      10.0.0.5:43210  142.250.1.100:443 ESTABLISHED
-     */
-    private fun parseNetstatLine(line: String, uid: Int, out: MutableSet<String>) {
-        val parts = line.trim().split(WHITESPACE)
-        if (parts.size < 5) return
-        if (parts[0] != "tcp" && parts[0] != "tcp6" &&
-            parts[0] != "udp" && parts[0] != "udp6") return
-
-        // Foreign Address is the 5th column or last part
-        val foreign = parts.getOrNull(4) ?: parts.last()
-        val ip = extractIpFromSocketAddr(foreign) ?: return
-        if (ip.isNotEmpty() && !isLocalIp(ip)) {
-            out.add(ip)
+    /** Parse an ss peer token such as 203.0.113.7:443 or [2001:db8::1]:443. */
+    private fun extractEndpoint(addr: String): Pair<String, Int>? {
+        val host: String
+        val portText: String
+        if (addr.startsWith("[")) {
+            val end = addr.indexOf(']')
+            if (end <= 1 || end + 2 > addr.length || addr[end + 1] != ':') return null
+            host = addr.substring(1, end)
+            portText = addr.substring(end + 2)
+        } else {
+            val colon = addr.lastIndexOf(':')
+            if (colon <= 0) return null
+            host = addr.substring(0, colon)
+            portText = addr.substring(colon + 1)
         }
-    }
-
-    /**
-     * Extract IP from socket address format "ip:port" or "[ipv6]:port".
-     */
-    private fun extractIpFromSocketAddr(addr: String): String? {
-        return try {
-            val raw = when {
-                // IPv6 bracket notation: [::1]:443 or [::ffff:142.250.1.100]:443
-                addr.startsWith("[") -> {
-                    val end = addr.indexOf(']')
-                    if (end > 1) addr.substring(1, end) else null
-                }
-                // IPv4 or bare IPv6: count colons to distinguish
-                addr.count { it == ':' } == 1 -> {
-                    addr.substringBeforeLast(':')
-                }
-                // IPv6 without brackets: 2001:db8::1:443 — last colon separates port
-                addr.contains("::") || addr.count { it == ':' } > 1 -> {
-                    addr.substringBeforeLast(':')
-                }
-                else -> null
-            } ?: return null
-
-            // Strip IPv4-mapped IPv6 prefix (::ffff:192.168.1.1 -> 192.168.1.1)
-            var cleanIp = raw
-            if (cleanIp.startsWith("::ffff:")) {
-                cleanIp = cleanIp.removePrefix("::ffff:")
-            }
-            cleanIp
-        } catch (_: Exception) { null }
+        val port = portText.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        val cleanHost = host.removePrefix("::ffff:")
+        if (cleanHost.isBlank() || cleanHost == "*" || cleanHost == "0.0.0.0" || cleanHost == "::") return null
+        return cleanHost to port
     }
 
     // ── Local IP filter ───────────────────────────────────────────────
@@ -290,18 +227,17 @@ class NetworkPingMonitor {
 
     // ── Ping measurement ──────────────────────────────────────────────
 
-    private fun measurePing(ip: String): Int {
+    private fun measurePing(ip: String, port: Int): Int {
         val icmp = measureIcmpPing(ip)
         if (icmp > 0) return icmp
 
-        // Fallback: TCP socket handshake to port 443 for firewalled game servers
+        // Fallback: TCP handshake to the actual remote port for firewalled game servers
         return try {
-            val start = System.currentTimeMillis()
-            val socket = Socket()
-            socket.connect(InetSocketAddress(ip, 443), 1000)
-            val elapsed = (System.currentTimeMillis() - start).toInt()
-            socket.close()
-            elapsed
+            val start = SystemClock.elapsedRealtime()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, port), 1000)
+            }
+            (SystemClock.elapsedRealtime() - start).toInt()
         } catch (_: Exception) {
             -1
         }

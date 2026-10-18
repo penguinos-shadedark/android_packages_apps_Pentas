@@ -26,7 +26,7 @@ class NetworkTelemetry @Inject constructor() {
     val txSpeedKbps: MutableState<Float> get() = speed.txSpeedKbps
 
     fun start(context: Context, gameUid: Int) {
-        ping.start(context, gameUid)
+        ping.start(gameUid)
         speed.start(gameUid)
     }
     fun stop() {
