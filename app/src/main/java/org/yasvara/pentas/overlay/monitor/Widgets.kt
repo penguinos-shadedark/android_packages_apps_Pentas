@@ -93,7 +93,7 @@ private fun Classic(s: TelemetrySnapshot, o: WidgetOverlay) {
         val temp = set.shows(w, Field.TEMP)
         if (set.shows(w, Field.CPU)) KV("CPU") {
             Text(buildAnnotatedString {
-                append("${s.cpuUsageTotal}% · %.1fG".format(s.cpuFreqMaxKhz / 1e6f))
+                append("${s.cpuUsageTotal}%% · %.1fG".format(s.cpuFreqMaxKhz / 1e6f))
                 if (temp) { append(" · "); withStyle(v.toSpanStyle().copy(color = hot(s.cpuTempC, HOT_SOC))) { append("%.0f°".format(s.cpuTempC)) } }
             }, style = v, color = cs.onSurface)
         }

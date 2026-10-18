@@ -17,7 +17,10 @@ class DanmakuListener(private val overlay: DanmakuOverlay) : NotificationListene
 
     override fun onListenerConnected() {
         // What is already in the shade must not replay as banners.
-        activeNotifications.orEmpty().forEach { sbn -> textOf(sbn)?.let(seen::add) }
+        // A session that ends first has already unregistered us, and the call is then refused.
+        try {
+            activeNotifications.orEmpty().forEach { sbn -> textOf(sbn)?.let(seen::add) }
+        } catch (_: SecurityException) {}
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
