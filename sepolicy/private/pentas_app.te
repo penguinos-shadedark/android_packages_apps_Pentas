@@ -32,4 +32,15 @@ allow system_app proc_pid_max:file r_file_perms;
 # Suppress non-fatal SELinux audit logs from top binary scanning process trees
 dontaudit system_app domain:file r_file_perms;
 dontaudit system_app domain:dir r_dir_perms;
+dontaudit system_app proc_slabinfo:file r_file_perms;
+
+# NetworkPingMonitor lists game sockets with `ss`, which uses netlink sock_diag.
+# /proc/net/{tcp,udp} is neverallowed for appdomain, so the fallback reads are not audited.
+allow system_app self:netlink_tcpdiag_socket create_socket_perms_no_ioctl;
+# For kernel < 6.13
+allow system_app self:netlink_tcpdiag_socket nlmsg_read;
+# For kernel >= 6.13
+allow system_app self:netlink_tcpdiag_socket nlmsg;
+allowxperm system_app self:netlink_tcpdiag_socket nlmsg SOCK_DIAG_BY_FAMILY;
+dontaudit system_app proc_net_tcp_udp:file r_file_perms;
 
