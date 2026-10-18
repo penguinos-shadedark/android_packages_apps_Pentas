@@ -32,6 +32,10 @@ allow system_app vendor_sysfs_battery_supply:file r_file_perms;
 # GPU clock frequency (kgsl sysfs)
 allow system_app vendor_sysfs_kgsl_gpuclk:file r_file_perms;
 
+# Charging max-watt detection: /sys/firmware/devicetree/base/soc/mca_strategy_quick_charge/div_max_curr
+allow system_app vendor_sysfs_devicetree_soc:dir r_dir_perms;
+allow system_app vendor_sysfs_devicetree_soc:file r_file_perms;
+
 # OSS Pentas touch filter: /sys/devices/virtual/touch/touch_dev/
 # gamespace_touch_{profile,capabilities,stats}.  The kernel applies this to
 # the final point stream before it becomes an Android input event.
